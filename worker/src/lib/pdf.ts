@@ -1,6 +1,14 @@
 import { inflateSync, unzlibSync } from "fflate";
 import { AppError } from "./errors";
 
+/**
+ * PDF Processing Module
+ *
+ * Note: This module uses Latin1 encoding for text extraction which works for most
+ * Indonesian documents. For full UTF-8 support (including emojis and special characters),
+ * consider upgrading the TextDecoder to use UTF-8 encoding and handle CMaps properly.
+ */
+
 export interface TextLine {
   text: string;
   x: number;
@@ -59,6 +67,8 @@ class Lexer {
     while (this.pos < this.data.length) {
       const b = this.data[this.pos];
       if (b === 0x25) {
+        // Fix: Add bounds checking for comment parsing
+        this.pos++;
         while (this.pos < this.data.length && this.data[this.pos] !== 0x0a && this.data[this.pos] !== 0x0d) this.pos++;
         continue;
       }
@@ -138,8 +148,16 @@ class Lexer {
       if (WS.has(b) || b === 0x3c || b === 0x3e || b === 0x28 || b === 0x29 || b === 0x5b || b === 0x5d || b === 0x2f) break;
       this.pos++;
       if (b === 0x23) {
-        const hex = String.fromCharCode(this.data[this.pos], this.data[this.pos + 1]);
-        name += String.fromCharCode(parseInt(hex, 16));
+        // Fix: Properly construct hex string from two bytes
+        const byte1 = this.data[this.pos];
+        const byte2 = this.data[this.pos + 1];
+        if (byte1 !== undefined && byte2 !== undefined) {
+          const hex = String.fromCharCode(byte1) + String.fromCharCode(byte2);
+          const charCode = parseInt(hex, 16);
+          if (!isNaN(charCode)) {
+            name += String.fromCharCode(charCode);
+          }
+        }
         this.pos += 2;
       } else {
         name += String.fromCharCode(b);
@@ -193,7 +211,13 @@ class Lexer {
     }
     if (hex.length % 2 !== 0) hex += "0";
     let out = "";
-    for (let i = 0; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+    for (let i = 0; i < hex.length; i += 2) {
+      const byteVal = parseInt(hex.slice(i, i + 2), 16);
+      // Fix: Add validation for hex parsing
+      if (!isNaN(byteVal)) {
+        out += String.fromCharCode(byteVal);
+      }
+    }
     return { kind: "string", value: out };
   }
 
@@ -346,8 +370,10 @@ class PdfDocument2 {
       const startNum = indexArr[s];
       const count = indexArr[s + 1];
       for (let i = 0; i < count; i++) {
-        const base = (i + (startNum - (indexArr[0] === 0 ? 0 : 0))) * fields;
-        if (base + fields > entries.length) break;
+        // Fix: Proper index calculation for xref stream entries
+        const objIndex = i + (indexArr[s] - (indexArr[0] === 0 ? 0 : indexArr[0]));
+        const base = objIndex * fields;
+        if (base + fields > entries.length || base < 0) break;
         const f1 = this.readInt(entries, base, w[0]);
         const f2 = this.readInt(entries, base + w[0], w[1]);
         const f3 = this.readInt(entries, base + w[0] + w[1], w[2]);
@@ -389,11 +415,12 @@ class PdfDocument2 {
         try {
           // Most PDF producers emit zlib-wrapped deflate; some use raw deflate.
           out = unzlibSync(out);
-        } catch {
+        } catch (zlibErr) {
           try {
             out = inflateSync(out);
-          } catch {
-            throw new Error("flate decode failed");
+          } catch (inflateErr) {
+            // Fix: Better error message for debugging
+            throw new Error(`FlateDecode failed: zlib error (${zlibErr instanceof Error ? zlibErr.message : 'unknown'}), inflate error (${inflateErr instanceof Error ? inflateErr.message : 'unknown'})`);
           }
         }
       } else {
@@ -667,7 +694,10 @@ class ContentProcessor {
         text += ch;
       }
     }
-    this.runs.push({ text, x, y, size });
+    // Fix: Only push if there's actual text content
+    if (text) {
+      this.runs.push({ text, x, y, size });
+    }
     this.tm[4] += advance;
   }
 
@@ -698,7 +728,10 @@ class ContentProcessor {
         this.lm = [...IDENTITY];
         break;
       case "q":
-        this.stack.push({ tm: this.tm, lm: this.lm, fs: this.fs, leading: this.leading, th: this.th });
+        // Fix: Prevent stack overflow on malformed PDFs
+        if (this.stack.length < 100) {
+          this.stack.push({ tm: [...this.tm], lm: [...this.lm], fs: this.fs, leading: this.leading, th: this.th });
+        }
         break;
       case "Q": {
         const saved = this.stack.pop();
@@ -769,7 +802,10 @@ class ContentProcessor {
       case "TJ": {
         const arr = ops[0];
         if (arr && arr.kind === "array") {
-          for (const item of arr.value) {
+          // Fix: Add bounds check for large arrays to prevent performance issues
+          const maxItems = 10000;
+          const items = arr.value.slice(0, maxItems);
+          for (const item of items) {
             if (item.kind === "string") {
               this.applyString(item.value);
             } else if (item.kind === "number") {
@@ -822,6 +858,12 @@ function groupLines(runs: TextRun[], page: number): TextLine[] {
 
 export async function extractTextLayers(data: Uint8Array): Promise<ExtractedDocument> {
   try {
+    // Validate input size to prevent memory issues
+    const MAX_PDF_SIZE = 100 * 1024 * 1024; // 100MB limit
+    if (data.length > MAX_PDF_SIZE) {
+      throw new AppError(400, "pdf_too_large", `PDF size (${Math.round(data.length / 1024 / 1024)}MB) exceeds maximum allowed size (100MB)`, "input");
+    }
+
     const pdf = new PdfDocument2(data);
     pdf.parseXrefs();
 
@@ -880,7 +922,9 @@ export async function extractTextLayers(data: Uint8Array): Promise<ExtractedDocu
           const processor = new ContentProcessor();
           processor.process(decoded);
           runs.push(...processor.runs);
-        } catch {
+        } catch (streamErr) {
+          // Fix: Log stream processing errors for debugging while continuing
+          console.warn(`Failed to process content stream ${num}:`, streamErr instanceof Error ? streamErr.message : streamErr);
           /* skip un-decodable stream */
         }
       }
@@ -949,11 +993,7 @@ function collectPages(pdf: PdfDocument2, node: PdfValue | undefined, out: PdfVal
   }
   const kids = resolved.value["Kids"];
   if (!kids) {
-    // node without type but with Kids is a Pages node
-    if (resolved.value["Kids"]) {
-      const k = resolved.value["Kids"];
-      if (k.kind === "array") for (const kid of k.value) collectPages(pdf, kid, out, depth + 1);
-    }
+    // No kids found, this is a leaf node or malformed
     return;
   }
   if (kids.kind === "array") for (const kid of kids.value) collectPages(pdf, kid, out, depth + 1);
