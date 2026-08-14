@@ -1,5 +1,25 @@
-# Local development secrets — NEVER commit real values. Regenerate before any
-# production deploy and store via `wrangler secret put`.
-STAMP_CREDENTIAL_ENCRYPTION_KEY=Te6SqwQMIhr8O2dPYQ8PDZJoJBafEsukzZHSepZ8RYk=
-STAGING_PERURI_USERNAME=staging@opexnow.local
+# Local development secrets — NEVER commit real values.
+# Generate new secrets before production deployment and store via `wrangler secret put`.
+#
+# Required Environment Variables:
+# ---------------------------------
+# STAMP_CREDENTIAL_ENCRYPTION_KEY: AES-256-GCM key for encrypting credentials at rest
+#   Generate with: openssl rand -base64 32
+#
+# STAGING_PERURI_USERNAME: Peruri staging API username
+# STAGING_PERURI_PASSWORD: Peruri staging API password
+#
+# Production Secrets (set via wrangler secret put):
+# ---------------------------------
+# PERURI_PRODUCTION_USERNAME: Peruri production API username
+# PERURI_PRODUCTION_PASSWORD: Peruri production API password
+# PRODUCTION_TENANT_CREDENTIALS: Encrypted production credentials (if needed)
+
+# Example values for local development only
+STAMP_CREDENTIAL_ENCRYPTION_KEY=REPLACE_WITH_GENERATED_KEY
+STAGING_PERURI_USERNAME=staging@example.local
 STAGING_PERURI_PASSWORD=staging-demo-password
+
+# Optional: For production testing (set via wrangler secret put)
+# PERURI_PRODUCTION_USERNAME=
+# PERURI_PRODUCTION_PASSWORD=

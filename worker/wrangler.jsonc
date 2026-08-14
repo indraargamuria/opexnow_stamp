@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "opexnow-stamp-api",
   "main": "src/index.ts",
-  "compatibility_date": "2025-06-01",
+  "compatibility_date": "2025-08-14",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "../web/dist",
@@ -23,7 +23,7 @@
     {
       "binding": "DB",
       "database_name": "stampdb",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "YOUR_D1_DATABASE_ID_HERE"
     }
   ],
   "r2_buckets": [
@@ -34,8 +34,8 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "STAGING_QUOTA", "class_name": "StagingQuotaDO" },
-      { "name": "JWT_CACHE", "class_name": "JwtCacheDO" }
+      { "name": "STAGING_QUOTA", "class_name": "StagingQuotaDO", "script_name": "opexnow-stamp-api" },
+      { "name": "JWT_CACHE", "class_name": "JwtCacheDO", "script_name": "opexnow-stamp-api" }
     ]
   },
   "migrations": [
@@ -51,10 +51,26 @@
     "consumers": [
       {
         "queue": "opexnow-stamp-jobs",
-        "max_retries": 3,
+        "max_retries": 5,
+        "retry_delay": 60,
         "dead_letter_queue": "opexnow-stamp-jobs-dlq"
       }
     ]
   },
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true,
+    "head": true
+  },
+  "env": {
+    "staging": {
+      "vars": {
+        "ENVIRONMENT": "staging"
+      }
+    },
+    "production": {
+      "vars": {
+        "ENVIRONMENT": "production"
+      }
+    }
+  }
 }
