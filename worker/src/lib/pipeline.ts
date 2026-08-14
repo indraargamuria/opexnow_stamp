@@ -25,6 +25,8 @@ export const R2_PATHS = {
 };
 
 const RETRYABLE_STAGES = new Set(["peruri_auth", "peruri_api", "signing"]);
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
 
 export function isRetryableError(err: unknown): boolean {
   return err instanceof AppError && err.stage !== null && RETRYABLE_STAGES.has(err.stage);
@@ -52,6 +54,25 @@ async function setJobStatus(env: Env, jobId: string, status: string, fields?: Re
   }
   vals.push(jobId);
   await env.DB.prepare(`UPDATE stamp_jobs SET ${cols.join(", ")} WHERE id = ?`).bind(...vals).run();
+}
+
+/**
+ * Safely parse JSON with fallback
+ */
+function safeJsonParse<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Exponential backoff delay calculation
+ */
+function getBackoffDelay(attempt: number): number {
+  return BASE_DELAY_MS * Math.pow(2, attempt);
 }
 
 /**
@@ -97,7 +118,18 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
   const jobRow = await env.DB.prepare("SELECT * FROM stamp_jobs WHERE id = ?").bind(jobId).first<JobRow>();
   if (!jobRow) throw AppError.notFound("Job not found");
   if (jobRow.status === "signed") {
-    return { job: rowToJob(jobRow), anchor: jobRow.anchor_match ? JSON.parse(jobRow.anchor_match) : null, template_version: 0, quota_remaining: null };
+    // Fix: Use safe JSON parsing and provide proper fallback
+    return {
+      job: rowToJob(jobRow),
+      anchor: safeJsonParse(jobRow.anchor_match, { matched: false, keyword: null, used_default: true, page: 1, x: 0, y: 0, confidence: "low" }),
+      template_version: 0,
+      quota_remaining: null
+    };
+  }
+
+  // Fix: Add validation for terminal states to prevent processing completed/failed jobs
+  if (jobRow.status === "failed") {
+    throw new AppError(400, "job_failed", "Cannot process a job that has already failed", "job");
   }
 
   const tenant = await loadTenant(env, jobRow.tenant_id);
@@ -105,6 +137,7 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
   if (!template) throw new AppError(400, "template_required", "A template is required to stamp a document", "template");
 
   // ---- stage 1: anchor resolution (costs nothing) --------------------------
+  let anchor: AnchorResolution;
   if (jobRow.status === "pending_anchor" || !jobRow.anchor_match) {
     await setJobStatus(env, jobId, "pending_anchor");
     const unsigned = await env.DOCS.get(jobRow.unsigned_storage_key);
@@ -112,18 +145,52 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
     const pdfBytes = new Uint8Array(await unsigned.arrayBuffer());
     const doc = await extractTextLayers(pdfBytes);
     const cfg = parseConfig(template);
-    let anchor = resolveAnchor(cfg, doc);
-    if (doc.lines.length === 0) {
-      // No text layer — scanned/flattened document. OCR fallback is a separate
-      // compute-tier concern; flag low confidence and use the default position.
-      anchor = { matched: false, keyword: null, used_default: true, page: cfg.default_position.page, x: cfg.default_position.x, y: cfg.default_position.y, confidence: "low" };
+
+    // Fix: Add better error handling for anchor resolution
+    try {
+      anchor = resolveAnchor(cfg, doc);
+      if (doc.lines.length === 0) {
+        // No text layer — scanned/flattened document. OCR fallback is a separate
+        // compute-tier concern; flag low confidence and use the default position.
+        anchor = {
+          matched: false,
+          keyword: null,
+          used_default: true,
+          page: cfg.default_position.page,
+          x: cfg.default_position.x,
+          y: cfg.default_position.y,
+          confidence: "low"
+        };
+      }
+    } catch (anchorErr) {
+      // Log error but continue with default position
+      console.warn(`Anchor resolution failed for job ${jobId}:`, anchorErr instanceof Error ? anchorErr.message : anchorErr);
+      anchor = {
+        matched: false,
+        keyword: null,
+        used_default: true,
+        page: cfg.default_position.page,
+        x: cfg.default_position.x,
+        y: cfg.default_position.y,
+        confidence: "low"
+      };
     }
+
     await setJobStatus(env, jobId, "pending_sn", { anchor_match: JSON.stringify(anchor) });
+  } else {
+    // Fix: Use safe JSON parsing with proper fallback
+    anchor = safeJsonParse(jobRow.anchor_match, {
+      matched: false,
+      keyword: null,
+      used_default: true,
+      page: 1,
+      x: 0,
+      y: 0,
+      confidence: "low"
+    });
   }
 
   // ---- stage 2: peruri stampv2 (THIS is where staging quota is spent) ------
-  const refreshed = await env.DB.prepare("SELECT * FROM stamp_jobs WHERE id = ?").bind(jobId).first<JobRow>();
-  const anchor: AnchorResolution = refreshed!.anchor_match ? JSON.parse(refreshed!.anchor_match) : { matched: false, keyword: null, used_default: true, page: 1, x: 0, y: 0, confidence: "low" };
   const cfg = parseConfig(template);
 
   let quota_remaining: number | null = null;
@@ -159,8 +226,9 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
   }
 
   // ---- stage 3: signing via signadapter (retryable, no re-spend) -----------
-  const snRow = await env.DB.prepare("SELECT * FROM stamp_jobs WHERE id = ?").bind(jobId).first<JobRow>();
-  const serialNumber = snRow!.serial_number;
+  // Fix: Fetch job state once to avoid redundant database queries
+  const currentJob = await env.DB.prepare("SELECT * FROM stamp_jobs WHERE id = ?").bind(jobId).first<JobRow>();
+  const serialNumber = currentJob!.serial_number;
   if (!serialNumber) throw new AppError(500, "missing_sn", "Job reached signing without a serial number", "signing");
 
   await setJobStatus(env, jobId, "signing");
@@ -178,7 +246,8 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
   };
 
   let signed: Uint8Array | null = null;
-  for (let attempt = 0; attempt < 10; attempt++) {
+  // Fix: Use exponential backoff and max retries constant
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const qrObj = await env.DOCS.get(R2_PATHS.qr(jobRow.tenant_id, jobId));
       signed = await signWithAdapter({
@@ -191,8 +260,11 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
       });
       break;
     } catch (err) {
-      if (attempt >= 9) throw err;
-      await new Promise((r) => setTimeout(r, 1000));
+      if (attempt >= MAX_RETRIES - 1) throw err;
+      // Fix: Use exponential backoff instead of fixed delay
+      const delay = getBackoffDelay(attempt);
+      await new Promise((r) => setTimeout(r, delay));
+      console.warn(`Signing attempt ${attempt + 1} failed for job ${jobId}, retrying in ${delay}ms...`);
     }
   }
   if (!signed) throw new AppError(500, "sign_failed", "Signing failed after retries", "signing");
@@ -212,11 +284,20 @@ export async function processJob(env: Env, jobId: string): Promise<{ job: Return
 }
 
 async function sha256HexShort(env: Env, key: string): Promise<string> {
-  const obj = await env.DOCS.get(key);
-  if (!obj) return "missing";
-  const buf = await obj.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest.slice(0, 8)))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  try {
+    const obj = await env.DOCS.get(key);
+    if (!obj) {
+      // Fix: Throw proper error instead of returning "missing" string
+      throw new AppError(500, "storage_missing", `Document not found in storage: ${key}`, "storage");
+    }
+    const buf = await obj.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(digest.slice(0, 8)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch (err) {
+    // Fix: Proper error handling for hash computation
+    if (err instanceof AppError) throw err;
+    throw new AppError(500, "hash_failed", `Failed to compute document hash: ${err instanceof Error ? err.message : err}`, "hash");
+  }
 }
