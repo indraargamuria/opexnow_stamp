@@ -1,0 +1,28 @@
+{
+  "name": "@opexnow-stamp/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit",
+    "db:apply": "wrangler d1 migrations apply stampdb --local",
+    "db:seed": "node scripts/seed.mjs",
+    "make-sample": "node scripts/make-sample-pdf.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "hono": "^4.6.14",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.8.69",
+    "qrcode-generator": "^1.4.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.99.0"
+  }
+}

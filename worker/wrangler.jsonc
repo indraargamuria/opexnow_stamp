@@ -1,0 +1,60 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "opexnow-stamp-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "ENVIRONMENT": "local",
+    "MOCK_PERURI": "false",
+    "PERURI_STAGING_BASE_URL": "https://backendservicestg.e-meterai.co.id",
+    "PERURI_PROD_BASE_URL": "https://backendservice.e-meterai.co.id",
+    "PERURI_STAGING_STAMP_BASE_URL": "https://stampv2stg.e-meterai.co.id",
+    "PERURI_PROD_STAMP_BASE_URL": "https://stampv2.e-meterai.co.id",
+    "API_KEY_PREFIX": "opx",
+    "SESSION_TTL_SECONDS": "86400"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stampdb",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DOCS",
+      "bucket_name": "opexnow-stamp-docs"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "STAGING_QUOTA", "class_name": "StagingQuotaDO" },
+      { "name": "JWT_CACHE", "class_name": "JwtCacheDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["StagingQuotaDO", "JwtCacheDO"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "STAMP_QUEUE", "queue": "opexnow-stamp-jobs" }
+    ],
+    "consumers": [
+      {
+        "queue": "opexnow-stamp-jobs",
+        "max_retries": 3,
+        "dead_letter_queue": "opexnow-stamp-jobs-dlq"
+      }
+    ]
+  },
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,5 @@
+# Local development secrets — NEVER commit real values. Regenerate before any
+# production deploy and store via `wrangler secret put`.
+STAMP_CREDENTIAL_ENCRYPTION_KEY=Te6SqwQMIhr8O2dPYQ8PDZJoJBafEsukzZHSepZ8RYk=
+STAGING_PERURI_USERNAME=staging@opexnow.local
+STAGING_PERURI_PASSWORD=staging-demo-password
