@@ -1,4 +1,5 @@
 :root {
+  /* Original OpexNow branding colors */
   --ink-navy: #1c2541;
   --ink-navy-2: #27325a;
   --indigo: #3a4a7a;
@@ -27,4 +28,75 @@
 
   --shadow-1: 0 1px 2px rgba(28, 37, 65, 0.06), 0 1px 1px rgba(28, 37, 65, 0.04);
   --shadow-2: 0 6px 18px rgba(28, 37, 65, 0.08);
+
+  /* shadcn/ui theme variables integrated with OpexNow branding */
+  --background: 210 40% 98%; /* Light paper background */
+  --foreground: 222 47% 11%; /* Dark ink navy text */
+
+  --card: 210 40% 98%; /* Paper raised */
+  --card-foreground: 222 47% 11%;
+
+  --popover: 210 40% 98%;
+  --popover-foreground: 222 47% 11%;
+
+  --primary: 222 47% 11%; /* Ink navy primary */
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 210 40% 96%; /* Paper dim */
+  --secondary-foreground: 222 47% 11%;
+
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+
+  --accent: 35 60% 45%; /* Seal brass accent */
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 84% 60%; /* Alert rust */
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 45 20% 90%; /* Rule color */
+  --input: 45 20% 90%;
+  --ring: 222 47% 11%;
+
+  --chart-1: 220 70% 50%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 30 80% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+}
+
+.dark {
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+
+  --card: 222 47% 11%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 210 40% 98%;
+  --primary-foreground: 222 47% 11%;
+
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+
+  --accent: 35 60% 45%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 62% 30%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 217 33% 17%;
+  --input: 217 33% 17%;
+  --ring: 212 90% 60%;
+
+  --chart-1: 220 70% 50%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 30 80% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
 }

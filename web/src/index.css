@@ -1,0 +1,8 @@
+/* Tailwind CSS directives - must be first */
+@import "tailwindcss";
+
+/* Import OpexNow theme variables */
+@import "./styles/tokens.css";
+
+/* Import base styles */
+@import "./styles/base.css";

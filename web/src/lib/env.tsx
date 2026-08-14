@@ -42,7 +42,7 @@ export function EnvProvider({ children }: { children: ReactNode }) {
   const [target, setTargetState] = useState<Target>(() => {
     // Fix: Use safe localStorage with fallback
     const v = safeGetItem(KEY);
-    return isValidTarget(v) ? v : "staging";
+    return (v && isValidTarget(v)) ? v : "staging";
   });
 
   // Fix: Add localStorage sync with error handling
