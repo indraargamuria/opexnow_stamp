@@ -11,17 +11,38 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Fix: Get demo credentials from environment variable
+  const demoEmail = import.meta.env.VITE_DEMO_EMAIL ?? "admin@demo.local";
+  const demoPassword = import.meta.env.VITE_DEMO_PASSWORD ?? "demo";
+
   async function submit(e: FormEvent) {
     e.preventDefault();
+
+    // Fix: Add form validation
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError("Please enter your email address");
+      return;
+    }
+    if (!password) {
+      setError("Please enter your password");
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      await login(email.trim(), password);
+      await login(trimmedEmail, password);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Sign-in failed. Please try again.");
-    } finally {
-      setBusy(false);
+      setBusy(false); // Fix: Keep error state visible
     }
+  }
+
+  // Fix: Add quick-fill demo credentials function
+  function fillDemoCredentials() {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
   }
 
   return (
@@ -85,7 +106,23 @@ export function LoginPage() {
         </form>
 
         <div className="small faint" style={{ marginTop: 20, textAlign: "center" }}>
-          Demo tenant: admin@demo.local
+          Demo tenant: {demoEmail}{" "}
+          <button
+            type="button"
+            onClick={fillDemoCredentials}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--accent)",
+              cursor: "pointer",
+              padding: 0,
+              textDecoration: "underline",
+              fontSize: "inherit",
+              font: "inherit"
+            }}
+          >
+            (Auto-fill)
+          </button>
         </div>
       </div>
     </div>

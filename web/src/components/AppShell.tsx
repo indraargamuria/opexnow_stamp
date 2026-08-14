@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useState, useCallback } from "react";
 import { useAuth } from "../lib/auth";
 import { EnvSwitcher } from "./EnvSwitcher";
 import { SealMark } from "./CenterSplash";
@@ -15,6 +16,20 @@ const NAV = [
 export function AppShell() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Fix: Add proper logout handling with loading state
+  const handleLogout = useCallback(async () => {
+    if (isLoggingOut) return; // Prevent double clicks
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch (err) {
+      console.error("Logout failed:", err);
+      // Continue with local cleanup even if API call fails
+      setIsLoggingOut(false);
+    }
+  }, [logout, isLoggingOut]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -76,19 +91,22 @@ export function AppShell() {
             {user?.tenant_name}
           </div>
           <button
-            onClick={logout}
+            onClick={handleLogout}
+            disabled={isLoggingOut}
             style={{
               marginTop: 10,
               border: "1px solid rgba(255,255,255,0.18)",
-              background: "transparent",
+              background: isLoggingOut ? "rgba(255,255,255,0.05)" : "transparent",
               color: "#e8eaf0",
               borderRadius: 5,
               padding: "6px 10px",
               fontSize: 12.5,
               width: "100%",
+              cursor: isLoggingOut ? "not-allowed" : "pointer",
+              opacity: isLoggingOut ? 0.7 : 1,
             }}
           >
-            Sign out
+            {isLoggingOut ? "Signing out…" : "Sign out"}
           </button>
         </div>
       </aside>
@@ -112,7 +130,18 @@ export function AppShell() {
           <div className="label" style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span>Registry workspace</span>
             <span style={{ color: "var(--rule)" }}>/</span>
-            <span style={{ color: "var(--ink-navy)" }}>{location.pathname === "/" ? "Overview" : NAV.find((n) => n.to !== "/" && location.pathname.startsWith(n.to))?.label}</span>
+            <span style={{ color: "var(--ink-navy)" }}>
+              {(() => {
+                // Fix: Better breadcrumb logic for dynamic routes
+                if (location.pathname === "/") return "Overview";
+                if (location.pathname.startsWith("/templates")) return "Templates";
+                if (location.pathname.startsWith("/stamp")) return "Stamp document";
+                if (location.pathname.startsWith("/jobs")) return "Jobs";
+                if (location.pathname.startsWith("/settings")) return "Settings";
+                if (location.pathname.startsWith("/keys")) return "API keys";
+                return "Overview";
+              })()}
+            </span>
           </div>
           <EnvSwitcher />
         </header>
