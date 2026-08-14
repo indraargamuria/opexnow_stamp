@@ -23,14 +23,18 @@ interface TemplateCandidate {
 }
 
 function docToCandidates(doc: ExtractedDocument): TemplateCandidate[] {
-  return doc.lines.map((l) => ({
-    keyword: l.text.slice(0, 120),
-    page: l.page,
-    x: Math.round(l.x * 10) / 10,
-    y: Math.round(l.y * 10) / 10,
-    width: Math.round(l.width * 10) / 10,
-    height: Math.round(l.height * 10) / 10,
-  }));
+  // Fix: Add better validation and text processing
+  return doc.lines
+    .filter(l => l.text && l.text.trim().length > 0) // Filter empty lines
+    .map((l) => ({
+      keyword: l.text.trim().slice(0, 100), // Fix: Reduce to 100 chars and trim
+      page: l.page,
+      x: Math.round(l.x * 10) / 10,
+      y: Math.round(l.y * 10) / 10,
+      width: Math.round(l.width * 10) / 10,
+      height: Math.round(l.height * 10) / 10,
+    }))
+    .filter(c => c.keyword.length > 1); // Filter very short keywords
 }
 
 async function templatePreview(
@@ -113,6 +117,10 @@ templates.post("/", async (c) => {
 
   const candidates = docToCandidates(doc);
 
+  // Fix: Limit candidates to reasonable size and add metadata
+  const MAX_CANDIDATES = 200;
+  const displayedCandidates = candidates.slice(0, MAX_CANDIDATES);
+
   return c.json(
     {
       template_id: id,
@@ -120,7 +128,9 @@ templates.post("/", async (c) => {
       name,
       page_count: doc.pageCount,
       lines_count: doc.lines.length,
-      candidates: candidates.slice(0, 400),
+      candidates: displayedCandidates,
+      total_candidates: candidates.length,
+      candidates_truncated: candidates.length > MAX_CANDIDATES,
       box_pt: box,
       default_position_pt: default_position,
       sample_url: downloadUrl(sampleKey),
@@ -179,7 +189,13 @@ templates.put("/:id", async (c) => {
       page: body.default_position.page ?? 1,
     };
   } else {
-    default_position = JSON.parse(row.default_position);
+    // Fix: Add error handling for JSON parsing
+    try {
+      default_position = JSON.parse(row.default_position);
+    } catch (parseErr) {
+      console.error(`Failed to parse default_position for template ${id}:`, parseErr instanceof Error ? parseErr.message : parseErr);
+      throw AppError.badRequest("Invalid template default_position data");
+    }
   }
 
   const name = (body.name ?? row.name).trim();
@@ -208,15 +224,21 @@ templates.put("/:id", async (c) => {
       try {
         const doc = await extractTextLayers(bytes);
         preview = resolveAnchor({ anchors, box, default_position }, doc);
-      } catch {
+      } catch (previewErr) {
+        console.warn(`Failed to generate preview for template ${id}:`, previewErr instanceof Error ? previewErr.message : previewErr);
         /* preview best-effort */
       }
     }
   }
 
+  // Fix: Add error handling for fresh query
   const fresh = await c.env.DB.prepare("SELECT * FROM templates WHERE id = ?").bind(id).first<TemplateRow>();
+  if (!fresh) {
+    throw AppError.notFound("Template not found after update");
+  }
+
   return c.json({
-    ...rowToTemplate(fresh!),
+    ...rowToTemplate(fresh),
     preview_anchor: preview,
     sample_url: row.sample_storage_key ? downloadUrl(row.sample_storage_key) : null,
   });
